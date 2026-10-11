@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+logs/
+build/
+dist/
+SisePicker_config.json
+records/
+setup_log.txt
+models/
+
+.venv/
+
+# Private work products and independent project
+.work-gangdong/
+강동구/
+ppt_excel_api/
+tests/fixtures/
+docs/history/
+.tools/
