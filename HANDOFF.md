@@ -39,4 +39,9 @@ Windows 단일 실행 파일 `dist/SisePicker.exe`. 네이버 부동산(기본) 
 새 오류는 원본·정답·로그를 보존하고 파싱/단지 연결/집계/OCR/출력 중 어느 단계인지 재현한다. logs/last_ocr_*는 다음 인식으로 덮어쓴다.
 
 ## 게시 상태
-공개 저장소 https://github.com/nanjjo/SisePicker 생성 완료. v1.0 소스와 릴리스 업로드 준비 중. 기존 개발 이력에는 수집 자료가 있어 공개용 소스 스냅샷을 별도 커밋으로 게시하며 로컬 이력은 보존한다. 사용자 PPT/XLSX·설정·전체 캡처 묶음과 별도 API 프로젝트는 제외한다. 회귀 테스트에 필요한 공개 사이트 표본 JSON과 작은 단지 캡처 2개만 포함한다.
+공개 저장소: https://github.com/nanjjo/SisePicker (PUBLIC).
+릴리스: https://github.com/nanjjo/SisePicker/releases/tag/v1.0 . 소스와 안내/라이선스 ZIP은 게시 완료, 대용량 EXE 업로드는 재시도 중이다. 소스 스냅샷 최초 커밋15cf886, v1.0 표기 커밋fab12ab. 로컬 개발 main은 변경하지 않고 공개용 codex/release-v1.0 브랜치를 원격 main으로 푸시했다. 이후 게시 시 이 차이를 유지하고 로컬 main을 강제로 덮어쓰지 않는다.
+개인 PPT/XLSX·설정·전체 캡처 묶음과 별도 API 프로젝트는 제외했다. 회귀 테스트에 필요한 공개 사이트 표본 JSON과 작은 단지 캡처2개만 포함했다.
+
+## 다음 버전 요청
+사용자는 v2.0에서 네이버 동작을 확인한 뒤 OCR을 제거하기로 했다. 현재 코드에서 제거하지 않았으며 SPEC.md의 v2.0 확인 기준을 먼저 수행한다.
