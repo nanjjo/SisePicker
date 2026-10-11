@@ -40,7 +40,7 @@ Windows 단일 실행 파일 `dist/SisePicker.exe`. 네이버 부동산(기본) 
 
 ## 게시 상태
 공개 저장소: https://github.com/nanjjo/SisePicker (PUBLIC).
-릴리스: https://github.com/nanjjo/SisePicker/releases/tag/v1.0 . 소스와 안내/라이선스 ZIP은 게시 완료, 대용량 EXE 업로드는 재시도 중이다. 소스 스냅샷 최초 커밋15cf886, v1.0 표기 커밋fab12ab. 로컬 개발 main은 변경하지 않고 공개용 codex/release-v1.0 브랜치를 원격 main으로 푸시했다. 이후 게시 시 이 차이를 유지하고 로컬 main을 강제로 덮어쓰지 않는다.
+릴리스: https://github.com/nanjjo/SisePicker/releases/tag/v1.0 . 소스, 실행 파일, 배포 ZIP, 안내/라이선스 ZIP, SHA256SUMS.txt 게시 완료. GitHub 자산 digest와 로컬 EXE/배포 ZIP의 SHA256이 모두 일치함을 확인했다. 대용량 업로드는 기본 HTTP/2에서 지연되어 GODEBUG=http2client=0으로 재시도해 성공했다. 소스 스냅샷 최초 커밋15cf886, v1.0 표기 커밋fab12ab. 로컬 개발 main은 변경하지 않고 공개용 codex/release-v1.0 브랜치를 원격 main으로 푸시했다. 이후 게시 시 이 차이를 유지하고 로컬 main을 강제로 덮어쓰지 않는다.
 개인 PPT/XLSX·설정·전체 캡처 묶음과 별도 API 프로젝트는 제외했다. 회귀 테스트에 필요한 공개 사이트 표본 JSON과 작은 단지 캡처2개만 포함했다.
 
 ## 다음 버전 요청
