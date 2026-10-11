@@ -1,4 +1,4 @@
-# SisePicker v1.1.0
+# SisePicker v1.0
 
 네이버 부동산·시세통의 단지별 매매/전세를 가져와 검수하고 생활권 PPT에 추가하는 Windows 앱입니다.
 
