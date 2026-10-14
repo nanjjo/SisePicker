@@ -33,4 +33,8 @@
 - 로컬 main은 과거 개발 이력이다. 공개 origin/main과 이력이 다르므로 reset 또는 강제push 금지. 공개 이력을 부모로 별도 인덱스에서 승인된 소스만 반영한다. 개인 PPT/XLSX, settings/logs/records/models/별도 ppt_excel_api는 공개 대상 아님.
 
 ## 공개 상태
-공개 저장소: https://github.com/nanjjo/SisePicker . v1.0 보존. v2.0 게시 준비 완료, 업로드 검증 후 이 항목을 갱신한다.
+공개 저장소: https://github.com/nanjjo/SisePicker (PUBLIC).
+v2.0 게시 완료: https://github.com/nanjjo/SisePicker/releases/tag/v2.0 (정식 릴리스, draft=false).
+태그/소스 커밋: 8fbe9309216a7af9a797d39eb057b0132e936493. v1.0 보존.
+업로드 EXE SHA256은 위 로컬 해시와 일치. ZIP SHA256 `850fba70543cc34c5783acb94df4de0f9de05c84a5338a7cded157b4c1a899a9`도 일치. EXE/ZIP/체크섬3개 자산 확인.
+릴리스 ZIP의 인수인계는 게시 전 스냅샷이다. 이 공개 상태 확인 기록은 후속 문서 커밋으로 추가하며 EXE/ZIP은 변경하지 않는다.
