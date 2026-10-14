@@ -1,4 +1,4 @@
-"""SisePicker 진입점 — 캡쳐 이미지 OCR → 시세 텍스트 → 클립보드/PPT.
+"""SisePicker 진입점 — 웹 가져오기 → 시세 텍스트 → 클립보드/PPT.
 
 실행:  python main.py   또는   dist\\SisePicker.exe
 로그:  <앱 폴더>\\logs\\SisePicker.log

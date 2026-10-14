@@ -85,3 +85,49 @@ function summarizeNaverTypes(types, listings, complete=false) {
   return {types:[...map.values()].map(t=>({...t,sale:price(t.sale),lease:price(t.lease)})),errors};
 }
 if(typeof module!=='undefined')module.exports.summarizeNaverTypes=summarizeNaverTypes;
+
+// A missing trade button is not automatically zero: require explicit no-price
+// text in the selected complex summary as independent DOM evidence.
+function naverExpectedCount(doc, complexId) {
+  const marker=doc.getElementById(complexId+'COMPLEX');
+  if(!marker || marker.getAttribute('aria-pressed')!=='true')return null;
+  const counts=new Map();
+  for(const link of marker.querySelectorAll('.article_link')) {
+    const trade=link.querySelector('.type')?.textContent.trim();
+    if(!['매매','전세'].includes(trade))continue;
+    const raw=link.querySelector('.count')?.textContent.trim().replace(/,/g,'');
+    if(!raw || !/^\d+$/.test(raw) || counts.has(trade))return null;
+    const count=Number(raw);if(!Number.isSafeInteger(count))return null;
+    counts.set(trade,count);
+  }
+  const prices=new Map();
+  for(const dt of doc.querySelectorAll('#summaryInfo dt')) {
+    const label=dt.textContent.trim();
+    if(['매매가','전세가'].includes(label))prices.set(label,dt.nextElementSibling?.textContent.trim());
+  }
+  for(const trade of ['매매','전세']) {
+    if(!counts.has(trade)) {
+      if(prices.get(trade+'가')!=='-')return null;
+      counts.set(trade,0);
+    }
+  }
+  return counts.get('매매')+counts.get('전세');
+}
+if(typeof module!=='undefined')module.exports.naverExpectedCount=naverExpectedCount;
+
+// Yield to the browser between checks. Readiness must remain true for settleMs;
+// a timeout is never proof that all listings have been collected.
+async function naverWaitFor(ready, {guard=()=>{}, timeoutMs=1500, settleMs=0,
+  intervalMs=50, sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)), now=()=>Date.now()}={}) {
+  const started=now();let since=null;
+  while(true) {
+    guard();const time=now();
+    if(ready()) {
+      if(since===null)since=time;
+      if(time-since>=settleMs)return true;
+    } else since=null;
+    if(time-started>=timeoutMs)return false;
+    await sleep(Math.min(intervalMs,timeoutMs-(time-started)));
+  }
+}
+if(typeof module!=='undefined')module.exports.naverWaitFor=naverWaitFor;

@@ -10,7 +10,7 @@ if not exist ".venv\Scripts\python.exe" (
 set "BUILD_PY=%~dp0.venv\Scripts\python.exe"
 "%BUILD_PY%" -m pip install --disable-pip-version-check -r requirements-build.txt
 if errorlevel 1 exit /b 1
-"%BUILD_PY%" -m unittest test_sisepicker test_workflow_changes test_naver_import -q
+"%BUILD_PY%" -m unittest test_sisepicker test_workflow_changes test_naver_import test_web_gui -q
 if errorlevel 1 exit /b 1
 where node >nul 2>&1
 if errorlevel 1 (

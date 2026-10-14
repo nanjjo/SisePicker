@@ -1,6 +1,6 @@
-python-pptx>=1.0
-Pillow>=10
-winocr>=0.0.10 ; sys_platform == "win32"
-rapidocr_onnxruntime>=1.3
-pywin32>=306 ; sys_platform == "win32"
-pyinstaller>=6.0
+lxml==6.1.2
+pillow==12.3.0
+python-pptx==1.0.2
+pywin32==312
+typing_extensions==4.16.0
+xlsxwriter==3.2.9

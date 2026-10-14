@@ -16,6 +16,7 @@ def default_pptx_path() -> str:
 
 @dataclass
 class Config:
+    # v2.0: 아래 OCR/사전 관련 필드는 v1 설정 호환용이며 웹 전용 GUI에서는 사용하지 않는다.
     # 결과를 붙여 넣을 PPT 파일 (PC 마다 다르므로 config JSON 에 저장되어 따라간다)
     pptx_path: str = field(default_factory=default_pptx_path)
     # winocr 언어 코드 (ko / en / ja ...)

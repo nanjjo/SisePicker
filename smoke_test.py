@@ -12,20 +12,21 @@ def smoke_test(report_path):
         import tkinter as tk
         from PIL import Image
         from pptx import Presentation
-        import onnxruntime
-        import cv2
-        from rapidocr_onnxruntime import RapidOCR
         import pythoncom
         import win32com.client
         from result_grid import ResultGrid
         from naver_import import PREFIX,parse_naver_text,group_naver,create_guide
         from web_import import create_guide as create_sise_guide
         root=tk.Tk();root.withdraw()
+        import importlib.util
+        import sys
+        if getattr(sys, 'frozen', False):
+            for module in ('ocr_engine','rapidocr_onnxruntime','onnxruntime','cv2','numpy','winocr'):
+                assert importlib.util.find_spec(module) is None, module + ' must not be bundled'
         grid=ResultGrid(root);grid.set_text('단지 24\n84) 12.5/6.5')
         assert not grid.issues()
         assert grid.get_text().endswith('84) 12.5/6.5')
         Image.new('RGB',(20,20))
-        RapidOCR()
         data={'source':'https://new.land.naver.com/','complexId':'1','name':'검증','households':'780','approvalDate':'2024-01-30',
               'complete':True,'types':[{'key':'116A','supplyPyeong':'35','exclusiveArea':'84.15','sale':'12.5','lease':'6.5'}]}
         assert group_naver(parse_naver_text(PREFIX+json.dumps(data)))[0]['sale']=='12.5'
@@ -34,7 +35,7 @@ def smoke_test(report_path):
             assert len(Presentation(p).slides)==1
             assert 'javascript:' in create_guide(d).read_text('utf-8')
             create_sise_guide(d)
-        report.update(ok=True,checks=['Tk/result-grid','PPTX','Pillow','RapidOCR/models','OpenCV','ONNXRuntime','COM imports','Naver parser','both bookmarklets'])
+        report.update(ok=True,checks=['Tk/result-grid','PPTX','Pillow','COM imports','Naver parser','both bookmarklets'])
     except Exception:
         report['error']=traceback.format_exc()
     finally:

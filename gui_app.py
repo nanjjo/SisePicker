@@ -1,35 +1,25 @@
-"""SisePicker tkinter GUI.
-
-흐름: 캡쳐(Win+Shift+S) -> [클립보드에서 읽기] 또는 자동 감시 -> OCR(백그라운드 스레드)
-      -> 파싱/정리 -> 결과 편집 -> 클립보드 복사 / PPT 에 추가
-"""
+"""SisePicker v2.0 웹 가져오기 전용 GUI."""
 from __future__ import annotations
 
 import copy
-import hashlib
 import logging
 import os
-import queue
 import re
-import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
-from typing import Callable, Optional
+from typing import Optional
 
-from PIL import Image, ImageGrab, ImageTk
 
-import ocr_engine
 import pptx_writer
 from app_paths import app_dir
 from config_manager import Config, load_config, save_config
-import name_dict
 from record_writer import ZoneRecorder
 from result_grid import ResultGrid
 from sise_parser import PYEONG_DIVISOR, conversion_info, format_record, lines_to_text
 
 log = logging.getLogger("SisePicker")
 
-APP_TITLE = "SisePicker — 웹 가져오기 · 이미지 OCR"
+APP_TITLE = "SisePicker v2.0 — 네이버 · 시세통 웹 가져오기"
 WATCH_INTERVAL_MS = 800
 
 
@@ -38,20 +28,11 @@ class SisePickerGUI:
         self,
         root: tk.Tk,
         config: Optional[Config] = None,
-        ocr_func: Callable[[Image.Image, str, int], list[str]] = ocr_engine.recognize,
-        clipboard_grab: Callable[[], object] = ImageGrab.grabclipboard,
         ask_zone_on_start: bool = True,
     ):
         self.root = root
         self.config = config if config is not None else load_config()
-        self._ocr_func = ocr_func
-        self._grab = clipboard_grab
-        self._q: "queue.Queue[tuple]" = queue.Queue()
         self._busy = False
-        self._last_clip_hash: Optional[str] = None
-        self._preview_photo = None
-        self._preview_size = None
-        self._current_image: Optional[Image.Image] = None
         self._watch_job = None
         self._last_recorded_text: Optional[str] = None
         self._pending_record = False
@@ -81,7 +62,6 @@ class SisePickerGUI:
         self._build_widgets()
         self._config_to_gui()
         self._load_zones()
-        self._poll_queue()
         self._schedule_watch()
         root.bind_all("<Control-v>", self._paste_shortcut)
         root.bind_all("<Control-V>", self._paste_shortcut)
@@ -99,11 +79,9 @@ class SisePickerGUI:
         self.notebook = ttk.Notebook(r)
         self.notebook.grid(row=1, column=0, sticky="ew", padx=8, pady=(8, 0))
         self.web_tab = ttk.Frame(self.notebook, padding=10)
-        self.ocr_tab = ttk.Frame(self.notebook, padding=10)
         self.naver_tab = ttk.Frame(self.notebook, padding=10)
         self.notebook.add(self.naver_tab, text="네이버 부동산")
         self.notebook.add(self.web_tab, text="시세통")
-        self.notebook.add(self.ocr_tab, text="이미지 OCR")
         nav_actions=ttk.Frame(self.naver_tab); nav_actions.pack(fill="x")
         tk.Button(nav_actions,text="네이버 값 붙여넣기 (Ctrl+V)",command=self.read_clipboard,
                   background="#FFAA45",font=("맑은 고딕",10,"bold"),padx=12,pady=7,relief="flat").pack(side="left")
@@ -124,18 +102,12 @@ class SisePickerGUI:
                   font=("맑은 고딕", 10, "bold"), padx=12, pady=7, relief="flat", cursor="hand2").pack(side="left", padx=8)
         ttk.Label(self.web_tab, text="시세통에서 등록한 즐겨찾기 실행 → 단지 선택·복사 → 여기에 붙여넣기\n가져온 값을 확인한 뒤 PPT 추가를 누르세요.").pack(anchor="w", pady=(8, 0))
         nav_options=ttk.Frame(self.naver_tab);nav_options.pack(fill="x",pady=(6,0))
-        self.var_nav_basis=tk.StringVar(value="전용면적 (㎡)")
+        self.var_nav_basis=tk.StringVar(value="공급평수 (평)")
         self.var_nav_cutoff=tk.StringVar(value="공급평수")
         for label,var,choices in [("표시·묶음",self.var_nav_basis,("전용면적 (㎡)","공급평수 (평)")),("40평 미만 기준",self.var_nav_cutoff,("공급평수","전용면적"))]:
             ttk.Label(nav_options,text=label).pack(side="left",padx=4)
             ttk.Combobox(nav_options,textvariable=var,values=choices,width=15,state="readonly").pack(side="left")
         ttk.Button(nav_options,text="원본으로 다시 적용",command=self._regroup_naver).pack(side="left",padx=6)
-        ocr_actions = ttk.Frame(self.ocr_tab)
-        ocr_actions.pack(fill="x")
-        self.btn_clip = ttk.Button(ocr_actions, text="캡처 이미지 붙여넣기 (Ctrl+V)", command=self.read_clipboard)
-        self.btn_clip.pack(side="left")
-        self.btn_file = ttk.Button(ocr_actions, text="이미지 파일 열기…", command=self.open_file)
-        self.btn_file.pack(side="left", padx=(6, 0))
         self.var_watch = tk.BooleanVar()
         ttk.Checkbutton(top, text="클립보드 자동 감시", variable=self.var_watch,
                         command=self._on_watch_toggle).pack(side="left", padx=(14, 0))
@@ -155,30 +127,15 @@ class SisePickerGUI:
 
         mid = self.mid = ttk.Frame(r, padding=8)
         mid.grid(row=2, column=0, sticky="nsew")
-        mid.columnconfigure(0, weight=1, uniform="workspace")
-        mid.columnconfigure(1, weight=1, uniform="workspace")
+        mid.columnconfigure(0, weight=1)
         mid.rowconfigure(0, weight=1)
 
-        pv = self.preview_frame = ttk.LabelFrame(mid, text="캡쳐 이미지 · 자동 확대", padding=4)
-        pv.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        pv.pack_propagate(False)
-        self.lbl_preview = ttk.Label(pv, text="(이미지 없음)", anchor="center", width=1)
-        self.lbl_preview.pack(fill="both", expand=True)
-        self.lbl_preview.bind("<Configure>", lambda event: self._resize_preview())
-
         right = ttk.Frame(mid)
-        right.grid(row=0, column=1, sticky="nsew")
+        right.grid(row=0, column=0, sticky="nsew")
         right.columnconfigure(0, weight=1)
         right.rowconfigure(1, weight=0)
         right.rowconfigure(3, weight=1)
 
-        self.var_show_raw = tk.BooleanVar(value=False)
-        self.raw_toggle = ttk.Checkbutton(right, text="OCR 원문 보기", variable=self.var_show_raw,
-                        command=self._toggle_raw)
-        self.raw_toggle.grid(row=0, column=0, sticky="w")
-        self.txt_raw = tk.Text(right, height=4, wrap="word", font=("Consolas", 10))
-        self.txt_raw.grid(row=1, column=0, sticky="nsew")
-        self.txt_raw.grid_remove()
         hdr = ttk.Frame(right)
         hdr.grid(row=2, column=0, sticky="ew", pady=(6, 0))
         ttk.Label(hdr, text="결과 (편집 가능)").pack(side="left")
@@ -202,15 +159,6 @@ class SisePickerGUI:
         self.btn_ppt.grid(row=0, column=1, sticky="ew", padx=(3, 0))
         self.btn_rec = ttk.Button(act, text="기록 폴더 열기", command=self.open_record)
         self.btn_rec.grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=3)
-        ocr_options = ttk.Frame(self.ocr_tab)
-        ocr_options.pack(fill="x", pady=(8, 0))
-        self.var_autocopy = tk.BooleanVar()
-        ttk.Checkbutton(ocr_options, text="인식 후 자동 복사", variable=self.var_autocopy,
-                        command=self._save_config).pack(side="left")
-        self.var_autoppt = tk.BooleanVar()
-        ttk.Checkbutton(ocr_options, text="인식 후 PPT 자동 추가", variable=self.var_autoppt,
-                        command=self._save_config).pack(side="left", padx=8)
-
         opt = ttk.LabelFrame(r, text="설정", padding=8)
         opt.grid(row=3, column=0, sticky="ew", padx=8)
         opt.columnconfigure(1, weight=1)
@@ -223,9 +171,6 @@ class SisePickerGUI:
 
         row1 = ttk.Frame(opt)
         row1.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        self.var_fix = tk.BooleanVar()
-        ttk.Checkbutton(ocr_options, text="'N단' → 'N단지' 보정", variable=self.var_fix,
-                        command=self._save_config).pack(side="left")
         ttk.Label(row1, text="사용 행 수").pack(side="left", padx=(14, 4))
         self.var_rows = tk.IntVar()
         ttk.Spinbox(row1, from_=1, to=5, width=3, textvariable=self.var_rows,
@@ -236,52 +181,22 @@ class SisePickerGUI:
         self.var_confirm = tk.BooleanVar()
         ttk.Checkbutton(row1, text="변환 확인창", variable=self.var_confirm,
                         command=self._save_config).pack(side="left", padx=(10, 0))
-        ocr_settings = ttk.Frame(self.ocr_tab)
-        ocr_settings.pack(fill="x", pady=(6, 0))
-        ttk.Label(ocr_settings, text="OCR 언어").pack(side="left", padx=(0, 4))
-        self.var_lang = tk.StringVar()
-        ttk.Entry(ocr_settings, width=5, textvariable=self.var_lang).pack(side="left")
-        ttk.Label(ocr_settings, text="확대 배율").pack(side="left", padx=(14, 4))
-        self.var_scale = tk.IntVar()
-        ttk.Spinbox(ocr_settings, from_=1, to=6, width=3, textvariable=self.var_scale,
-                    command=self._save_config).pack(side="left")
-
-        self.var_status = tk.StringVar(value="시세통에서 단지를 복사한 뒤 '시세통 값 붙여넣기'를 누르세요.")
+        self.var_status = tk.StringVar(value="네이버에서 수집 결과를 복사한 뒤 '네이버 값 붙여넣기'를 누르세요.")
         ttk.Label(r, textvariable=self.var_status, anchor="w", relief="sunken",
                   padding=(6, 2)).grid(row=4, column=0, sticky="ew", padx=8, pady=8)
-        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-        self._on_tab_changed()
 
     def _nav_mode(self):
         return self.notebook.select() == str(self.naver_tab)
 
-    def _web_mode(self):
-        return self.notebook.select() in (str(self.web_tab),str(self.naver_tab))
 
-    def _on_tab_changed(self, event=None):
-        if self._web_mode():
-            self.preview_frame.grid_remove()
-            self.mid.columnconfigure(0, weight=0, minsize=0, uniform="")
-            self.raw_toggle.grid_remove()
-            self.txt_raw.grid_remove()
-        else:
-            self.mid.columnconfigure(0, weight=1, uniform="workspace")
-            self.preview_frame.grid()
-            self.raw_toggle.grid()
-            self._toggle_raw()
 
     # -------------------------------------------------------------- config
     def _config_to_gui(self):
         c = self.config
         self.var_pptx.set(c.pptx_path)
         self.var_zone.set(c.zone)
-        self.var_autocopy.set(c.auto_copy)
-        self.var_autoppt.set(c.auto_add_ppt)
         self.var_watch.set(c.watch_clipboard)
-        self.var_fix.set(c.fix_danji_suffix)
         self.var_rows.set(c.rows_to_use)
-        self.var_lang.set(c.ocr_lang)
-        self.var_scale.set(c.ocr_scale)
         self.var_pyeong.set(c.result_in_pyeong)
         self.var_confirm.set(c.show_confirm_dialog)
         self.var_topmost.set(c.always_on_top)
@@ -294,10 +209,7 @@ class SisePickerGUI:
         c.zone = self.var_zone.get().strip()
         if c.zone and c.zone not in c.zone_history:
             c.zone_history = ([c.zone] + list(c.zone_history))[:20]
-        c.auto_copy = bool(self.var_autocopy.get())
-        c.auto_add_ppt = bool(self.var_autoppt.get())
         c.watch_clipboard = bool(self.var_watch.get())
-        c.fix_danji_suffix = bool(self.var_fix.get())
         try:
             c.rows_to_use = max(1, int(self.var_rows.get()))
         except (tk.TclError, ValueError):
@@ -305,11 +217,6 @@ class SisePickerGUI:
         c.result_in_pyeong = bool(self.var_pyeong.get())
         c.always_on_top = bool(self.var_topmost.get())
         c.show_confirm_dialog = bool(self.var_confirm.get())
-        c.ocr_lang = self.var_lang.get().strip() or "ko"
-        try:
-            c.ocr_scale = max(1, int(self.var_scale.get()))
-        except (tk.TclError, ValueError):
-            pass
         try:
             c.window_geometry = self.root.geometry()
         except tk.TclError:
@@ -329,13 +236,6 @@ class SisePickerGUI:
         base = os.path.dirname(os.path.abspath(cfg.pptx_path)) if cfg.pptx_path else app_dir()
         return os.path.join(base, "records")
 
-    @staticmethod
-    def _name_dict_path(cfg: Config) -> str:
-        """단지명 사전: PPT 파일 폴더의 단지목록.txt (config.name_dict_path 가 절대 경로면 그곳)."""
-        if cfg.name_dict_path and os.path.isabs(cfg.name_dict_path):
-            return cfg.name_dict_path
-        base = os.path.dirname(os.path.abspath(cfg.pptx_path)) if cfg.pptx_path else app_dir()
-        return os.path.join(base, "단지목록.txt")
 
     def _save_config(self):
         self.config = self._gui_to_config()
@@ -356,11 +256,6 @@ class SisePickerGUI:
             return
         self.read_clipboard()
 
-    def _toggle_raw(self):
-        if self.var_show_raw.get() and not self._web_mode():
-            self.txt_raw.grid()
-        else:
-            self.txt_raw.grid_remove()
 
     def read_clipboard(self):
         if self._busy:
@@ -369,21 +264,8 @@ class SisePickerGUI:
             if not self._read_naver_clipboard():
                 self.set_status("네이버 전용 즐겨찾기에서 결과를 복사한 뒤 붙여넣으세요.")
             return
-        if self._web_mode():
-            if not self._read_web_clipboard():
-                self.set_status("시세통 가져오기 데이터가 없습니다. 단지를 복사하거나 이미지 OCR 탭을 선택하세요.")
-            return
-        try:
-            data = self._grab()
-        except Exception as e:  # pragma: no cover
-            self.set_status(f"클립보드 읽기 실패: {e}")
-            return
-        img = self._to_image(data)
-        if img is None:
-            self.set_status("클립보드에 이미지 또는 시세통 가져오기 데이터가 없습니다.")
-            return
-        self._last_clip_hash = self._hash(img)
-        self.process_image(img, source="클립보드")
+        if not self._read_web_clipboard():
+            self.set_status("시세통 전용 즐겨찾기에서 단지를 복사한 뒤 붙여넣으세요.")
 
     def open_web_guide(self):
         import webbrowser
@@ -458,130 +340,23 @@ class SisePickerGUI:
         self.config = cfg
         divisor = cfg.pyeong_divisor or PYEONG_DIVISOR
         text = format_record(rec, cfg.rows_to_use, divisor if cfg.result_in_pyeong else None)
-        self._current_image = None
-        self.lbl_preview.configure(image="", text="시세통 웹 텍스트로 가져온 결과입니다.\n단지명과 가격을 확인해 주세요.")
         self._handle_result(("web", [raw], text, rec, "웹 텍스트 · " + conversion_info(rec, divisor)))
         return True
 
-    def open_file(self):
-        path = filedialog.askopenfilename(
-            title="이미지 파일", filetypes=[("이미지", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("모든 파일", "*.*")])
-        if not path:
-            return
-        try:
-            img = Image.open(path)
-            img.load()
-        except OSError as e:
-            messagebox.showerror("열기 실패", str(e))
-            return
-        self.process_image(img, source=os.path.basename(path))
 
-    def process_image(self, img: Image.Image, source: str = ""):
-        if self._busy:
-            return
-        self._busy = True
-        self._current_image = img
-        self._show_preview(img)
-        self._set_buttons(False)
-        self.set_status(f"OCR 인식 중… ({source})")
-        cfg = self._gui_to_config()
-        threading.Thread(target=self._ocr_worker, args=(img, cfg), daemon=True).start()
 
-    def _ocr_worker(self, img: Image.Image, cfg: Config):
-        try:
-            lines = self._ocr_func(img, cfg.ocr_lang, cfg.ocr_scale)
-            divisor = cfg.pyeong_divisor or PYEONG_DIVISOR
-            text, rec = lines_to_text(lines, cfg.fix_danji_suffix, cfg.rows_to_use,
-                                      divisor if cfg.result_in_pyeong else None)
-            info = conversion_info(rec, divisor) if rec.areas else ""
-            # 단지명 사전 보정 (OCR 오독: 생머리 → 샘머리)
-            if cfg.use_name_dict and rec.name:
-                hit = name_dict.best_match(rec.name, name_dict.load_names(self._name_dict_path(cfg)))
-                if hit and hit[0] != rec.name:
-                    info = (info + "   " if info else "") + f"단지명 보정: {rec.name} → {hit[0]} ({hit[1]:.0%})"
-                    rec.name = hit[0]
-                    text = format_record(rec, cfg.rows_to_use, divisor if cfg.result_in_pyeong else None)
-            self._q.put(("ok", lines, text, rec, info))
-        except ocr_engine.OcrLanguageMissingError as e:
-            log.exception("OCR 언어팩 없음")
-            self._q.put(("lang_missing", str(e), e.lang))
-        except Exception as e:
-            log.exception("OCR 실패")
-            self._q.put(("err", str(e)))
 
-    def _poll_queue(self):
-        try:
-            while True:
-                item = self._q.get_nowait()
-                self._handle_result(item)
-        except queue.Empty:
-            pass
-        self.root.after(100, self._poll_queue)
 
     def _handle_result(self, item: tuple):
-        self._busy = False
-        self._set_buttons(True)
-        if item[0] == "err":
-            self.set_status("OCR 실패")
-            messagebox.showerror("OCR 실패", item[1])
-            return
-        if item[0] == "lang_missing":
-            self.set_status("OCR 언어팩 없음")
-            if messagebox.askyesno(
-                "OCR 언어팩 설치",
-                item[1] + "\n\n지금 설치할까요? (관리자 권한 확인 창이 뜨고 1~3분 걸립니다. "
-                "설치 후 이 프로그램을 다시 실행하세요.)"):
-                if ocr_engine.install_ocr_pack(item[2]):
-                    self.set_status("OCR 언어팩 설치 창을 열었습니다 — 완료 후 프로그램을 다시 실행하세요.")
-                else:
-                    self.set_status("설치 창을 열지 못했습니다. 관리자 PowerShell 에서 직접 실행하세요.")
-            return
-        self._nav_record=None
+        self._nav_record = None
         self.nav_meta.grid_remove()
-        _, lines, text, rec, info = item
-        self.txt_raw.delete("1.0", "end")
-        self.txt_raw.insert("1.0", "\n".join(lines))
+        _, _, text, rec, info = item
         self.result_grid.set_text(format_record(rec, self.config.rows_to_use, None), "면적 (m²)",
                                   price_columns=max(1, self.config.rows_to_use))
-        self._pending_record = False
-        self.var_conv.set((f"평형 변환: {info}" if info and not info.startswith("단지명") else info) if info else "")
-        if item[0] == "web":
-            self._pending_record = True
-            self._last_recorded_text = None
-            self.var_conv.set(info)
-            self.set_status("웹 텍스트 가져오기 완료 — 단지명·가격 확인 후 PPT 추가를 누르세요.")
-            return
-        msg = "인식 완료"
-        if rec.warnings:
-            msg += " (주의: " + "; ".join(rec.warnings) + ")"
-        if any("?" in row for row in rec.rows) or self.result_grid.issues():
-            self._last_recorded_text = None
-            self._pending_record = True
-            self.set_status(msg + " — 노란 칸을 확인·수정하세요. 자동 기록·복사·PPT 추가는 보류했습니다.")
-            return
-        if self.config.show_confirm_dialog and text.strip():
-            ok = messagebox.askokcancel(
-                "평형 변환 확인",
-                f"{text}\n\n{info}\n\n생활권: {self.config.zone or '(미지정)'}\n\n"
-                "이대로 기록/복사/PPT 를 진행할까요?  (취소하면 건너뜁니다 — 결과를 고친 뒤 "
-                "'PPT에 추가'를 눌러 반영)",
-                parent=self.root)
-            if not ok:
-                self._last_recorded_text = None
-                self._pending_record = True
-                self.set_status(msg + " — 확인 취소, 기록/복사/PPT 건너뜀")
-                return
-        if self.config.record_enabled and text.strip():
-            self._record(text, new_entry=True)
-            msg += f" — 기록 {self.recorder.count}건"
-        if self.var_autocopy.get() and text.strip():
-            self._copy_to_clipboard(text)
-            msg += " — 클립보드에 복사됨"
-        self.set_status(msg)
-        if self.var_autoppt.get() and rec.ok:
-            self.add_to_ppt()
-        elif self.var_autoppt.get():
-            self.set_status(msg + " — 인식이 불완전해 PPT 자동 추가는 건너뜀 (결과 확인 후 'PPT에 추가')")
+        self._pending_record = True
+        self._last_recorded_text = None
+        self.var_conv.set(info)
+        self.set_status("웹 텍스트 가져오기 완료 — 단지명·가격 확인 후 PPT 추가를 누르세요.")
 
     def result_text(self) -> str:
         text = self.result_grid.get_text()
@@ -622,8 +397,6 @@ class SisePickerGUI:
             self._record(text, new_entry=pending)
             if self._last_recorded_text == text:
                 self._pending_record = False
-                if pending:
-                    self._learn_name(text)
 
     def _record(self, text: str, new_entry: bool):
         """세션 기록 파일에 반영. 편집된 결과는 마지막 항목을 교체한다."""
@@ -639,40 +412,12 @@ class SisePickerGUI:
                 self.recorder.add(raw_text)
             elif text != self._last_recorded_text:
                 self.recorder.replace_last(raw_text)
-                self._learn_name(text)
             self._last_recorded_text = text
         except OSError as e:
             log.warning("기록 파일 저장 실패: %s", e)
             self.set_status(f"기록 파일 저장 실패: {e}")
 
-    def _learn_name(self, text: str):
-        """사용자가 고친 결과의 단지명을 사전에 추가한다 (다음부터 같은 오독을 자동 보정)."""
-        if self._nav_record or not self.config.use_name_dict:
-            return
-        header = (text.splitlines() or [""])[0].strip()
-        name = header.rsplit(" ", 1)[0] if " " in header and header.rsplit(" ", 1)[1].isdigit() else header
-        try:
-            if name_dict.learn(self._name_dict_path(self.config), name):
-                self._learned = f"단지명 사전에 '{name}' 추가됨"
-                log.info(self._learned)
-        except OSError as e:
-            log.warning("단지명 사전 저장 실패: %s", e)
 
-    def open_name_dict(self):
-        path = self._name_dict_path(self.config)
-        if not os.path.isfile(path):
-            try:
-                name_dict.learn(path, "")      # 헤더만 있는 빈 파일 생성은 learn 이 거부하므로 직접 만든다
-            except OSError:
-                pass
-            if not os.path.isfile(path):
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path, "w", encoding="utf-8-sig") as f:
-                    f.write("# SisePicker 단지명 사전 — 한 줄에 단지명 하나. OCR 오독을 이 목록으로 보정합니다.\n")
-        try:
-            os.startfile(path)  # Windows
-        except (AttributeError, OSError):
-            self.set_status(f"단지명 사전: {path}")
 
     def open_record(self):
         path = self.recorder.directory
@@ -762,8 +507,6 @@ class SisePickerGUI:
             self.root.update_idletasks()
         except tk.TclError as e:  # pragma: no cover
             log.warning("클립보드 복사 실패: %s", e)
-        # 텍스트를 복사하면 클립보드 이미지가 사라지므로 감시가 재인식하지 않게 해시 갱신
-        self._last_clip_hash = None
 
     def add_to_ppt(self):
         if not self._ready_for_output():
@@ -802,92 +545,26 @@ class SisePickerGUI:
     # ---------------------------------------------------------- clipboard watch
     def _on_watch_toggle(self):
         self._save_config()
-        if self.var_watch.get():
-            # 켤 때 현재 이미지는 기준점으로만 삼고 인식하지 않는다
-            img = self._to_image(self._safe_grab())
-            self._last_clip_hash = self._hash(img) if img is not None else None
-            self.set_status("클립보드 자동 감시 켜짐 — 캡쳐하면 바로 인식합니다.")
-        else:
-            self.set_status("클립보드 자동 감시 꺼짐")
+        self.set_status("클립보드 자동 감시 " + ("켜짐 — 선택한 탭의 웹 수집 결과를 가져옵니다." if self.var_watch.get() else "꺼짐"))
 
     def _schedule_watch(self):
         self._watch_job = self.root.after(WATCH_INTERVAL_MS, self._watch_tick)
 
     def _watch_tick(self):
         try:
-            if self.var_watch.get() and not self._busy:
+            if self.var_watch.get():
                 if self._nav_mode():
                     self._read_naver_clipboard(watch=True)
-                    return
-                if self._web_mode():
+                else:
                     self._read_web_clipboard(watch=True)
-                    return
-                img = self._to_image(self._safe_grab())
-                if img is not None:
-                    h = self._hash(img)
-                    if h != self._last_clip_hash:
-                        self._last_clip_hash = h
-                        self.process_image(img, source="클립보드 감시")
         finally:
             self._schedule_watch()
 
-    def _safe_grab(self):
-        try:
-            return self._grab()
-        except Exception as e:  # pragma: no cover
-            log.debug("grabclipboard 실패: %s", e)
-            return None
-
-    # ---------------------------------------------------------------- helpers
-    @staticmethod
-    def _to_image(data) -> Optional[Image.Image]:
-        if isinstance(data, Image.Image):
-            return data
-        if isinstance(data, (list, tuple)):  # 파일 복사인 경우 첫 이미지 파일
-            for p in data:
-                if isinstance(p, str) and p.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".gif")):
-                    try:
-                        img = Image.open(p)
-                        img.load()
-                        return img
-                    except OSError:
-                        continue
-        return None
-
-    @staticmethod
-    def _hash(img: Image.Image) -> str:
-        small = img.convert("RGB").resize((32, 32))
-        return hashlib.md5(small.tobytes() + str(img.size).encode()).hexdigest()
-
-    def _show_preview(self, img: Image.Image):
-        self._current_image = img
-        self._preview_size = None
-        self._resize_preview()
-
-    def _resize_preview(self):
-        if self._current_image is None:
-            return
-        width = self.lbl_preview.winfo_width() - 8
-        height = self.lbl_preview.winfo_height() - 8
-        if width < 2 or height < 2:
-            return
-        img = self._current_image
-        factor = min(width / img.width, height / img.height)
-        size = (max(1, int(img.width * factor)), max(1, int(img.height * factor)))
-        if size == self._preview_size:
-            return
-        pv = img.convert("RGB").resize(size, Image.Resampling.LANCZOS)
-        self._preview_photo = ImageTk.PhotoImage(pv)
-        self._preview_size = size
-        self.lbl_preview.configure(image=self._preview_photo, text="")
-
-    def _set_buttons(self, enabled: bool):
-        state = "normal" if enabled else "disabled"
-        for b in (self.btn_web_clip, self.btn_clip, self.btn_file, self.btn_ppt):
-            b.configure(state=state)
-
     def on_close(self):
         self._save_config()
+        if self._watch_job is not None:
+            self.root.after_cancel(self._watch_job)
+            self._watch_job = None
         self.root.destroy()
 
 

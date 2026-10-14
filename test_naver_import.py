@@ -63,6 +63,9 @@ class NaverGuiTest(unittest.TestCase):
                 gui.notebook.select(gui.naver_tab)
                 with mock.patch.object(root,'clipboard_get',return_value=PREFIX+json.dumps(SAMPLE)),mock.patch.object(gui,'add_to_ppt') as ppt:
                     gui.read_clipboard();ppt.assert_not_called()
+                self.assertEqual(gui.var_nav_basis.get(),'공급평수 (평)')
+                self.assertIn('35)',gui.result_text());self.assertIn('36)',gui.result_text())
+                gui.var_nav_basis.set('전용면적 (㎡)');gui._regroup_naver()
                 self.assertEqual(gui.result_text(),"고덕풍경채어바니티 24' 780^\n84) 17.5/8.5")
                 self.assertTrue(gui._ready_for_output())
                 gui.var_pyeong.set(True)

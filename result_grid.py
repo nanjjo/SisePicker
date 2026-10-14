@@ -15,7 +15,7 @@ class ResultGrid(ttk.Frame):
         self.rows = []
         self.loaded = False
         self._last_issue_entry = None
-        self.summary = tk.StringVar(value="인식 결과가 여기에 표시됩니다.")
+        self.summary = tk.StringVar(value="가져온 결과가 여기에 표시됩니다.")
         bar = ttk.Frame(self)
         bar.pack(fill="x", pady=(3, 5))
         ttk.Label(bar, textvariable=self.summary).pack(side="left")
@@ -130,7 +130,7 @@ class ResultGrid(ttk.Frame):
             issues = sum(not self.valid(v.get(), "area" if i == 0 else "price") for i, v in enumerate(variables))
             status.configure(text=f"! 확인 {issues}칸" if issues else "✓ 입력 완료", foreground="#925500" if issues else "#21643b")
         count = len(self.issues())
-        self.summary.set(f"확인 필요 {count}칸 — 노란 칸을 수정하세요." if count else "입력 완료 — 값 확인 후 PPT에 추가하세요." if self.loaded else "인식 결과가 여기에 표시됩니다.")
+        self.summary.set(f"확인 필요 {count}칸 — 노란 칸을 수정하세요." if count else "입력 완료 — 값 확인 후 PPT에 추가하세요." if self.loaded else "가져온 결과가 여기에 표시됩니다.")
 
     def focus_next_issue(self):
         cells = self.issues()
